@@ -20,6 +20,7 @@ import (
 	"github.com/restic/restic/internal/backend/limiter"
 	"github.com/restic/restic/internal/backend/local"
 	"github.com/restic/restic/internal/backend/location"
+	"github.com/restic/restic/internal/backend/neofs"
 	"github.com/restic/restic/internal/backend/rclone"
 	"github.com/restic/restic/internal/backend/rest"
 	"github.com/restic/restic/internal/backend/s3"
@@ -680,6 +681,21 @@ func parseConfig(loc location.Location, opts options.Options) (interface{}, erro
 
 		debug.Log("opening rest repository at %#v", cfg)
 		return cfg, nil
+	case "neofs":
+		cfg := loc.Config.(neofs.Config)
+		if err := opts.Apply(loc.Scheme, &cfg); err != nil {
+			return nil, err
+		}
+
+		if cfg.Timeout <= 0 {
+			cfg.Timeout = 10 * time.Second
+		}
+		if cfg.RebalanceInterval <= 0 {
+			cfg.RebalanceInterval = 20 * time.Second
+		}
+
+		debug.Log("opening neofs repository at %#v", cfg)
+		return cfg, nil
 	}
 
 	return nil, errors.Fatalf("invalid backend: %q", loc.Scheme)
@@ -728,6 +744,8 @@ func open(s string, gopts GlobalOptions, opts options.Options) (restic.Backend, 
 		be, err = rest.Open(cfg.(rest.Config), rt)
 	case "rclone":
 		be, err = rclone.Open(cfg.(rclone.Config), lim)
+	case "neofs":
+		be, err = neofs.Open(globalOptions.ctx, cfg.(neofs.Config))
 
 	default:
 		return nil, errors.Fatalf("invalid backend: %q", loc.Scheme)
@@ -800,6 +818,8 @@ func create(s string, opts options.Options) (restic.Backend, error) {
 		return rest.Create(globalOptions.ctx, cfg.(rest.Config), rt)
 	case "rclone":
 		return rclone.Create(globalOptions.ctx, cfg.(rclone.Config))
+	case "neofs":
+		return neofs.Create(globalOptions.ctx, cfg.(neofs.Config))
 	}
 
 	debug.Log("invalid repository scheme: %v", s)

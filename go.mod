@@ -16,7 +16,6 @@ require (
 	github.com/go-ole/go-ole v1.2.6
 	github.com/gofrs/uuid v4.2.0+incompatible // indirect
 	github.com/golang-jwt/jwt/v4 v4.4.2 // indirect
-	github.com/golang/groupcache v0.0.0-20210331224755-41bb18bfe9da // indirect
 	github.com/google/go-cmp v0.5.8
 	github.com/googleapis/gax-go/v2 v2.5.1 // indirect
 	github.com/hashicorp/golang-lru v0.5.4
@@ -27,6 +26,8 @@ require (
 	github.com/minio/minio-go/v7 v7.0.34
 	github.com/minio/sha256-simd v1.0.0
 	github.com/ncw/swift/v2 v2.0.1
+	github.com/nspcc-dev/neo-go v0.99.3
+	github.com/nspcc-dev/neofs-sdk-go v1.0.0-rc.6.0.20220912074537-1929b634a1f7
 	github.com/pkg/errors v0.9.1
 	github.com/pkg/profile v1.6.0
 	github.com/pkg/sftp v1.13.5
@@ -34,6 +35,8 @@ require (
 	github.com/restic/chunker v0.4.0
 	github.com/spf13/cobra v1.5.0
 	github.com/spf13/pflag v1.0.5
+	github.com/stretchr/testify v1.8.0
+	github.com/testcontainers/testcontainers-go v0.14.0
 	golang.org/x/crypto v0.0.0-20220817201139-bc19a97f63c8
 	golang.org/x/net v0.0.0-20220822230855-b0a4917ee28c
 	golang.org/x/oauth2 v0.0.0-20220622183110-fd043fe589d2
