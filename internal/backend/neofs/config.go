@@ -11,7 +11,7 @@ import (
 
 // Config contains all configuration necessary to connect to neofs.
 type Config struct {
-	Endpoint  *url.URL
+	Endpoint  string
 	Container string
 
 	Wallet            string        `option:"wallet" help:"path to the wallet"`
@@ -19,6 +19,7 @@ type Config struct {
 	Password          string        `option:"password" help:"password to decrypt wallet"`
 	Timeout           time.Duration `option:"timeout" help:"timeout to connect and request (default 10s)"`
 	RebalanceInterval time.Duration `option:"rebalance" help:"interval between checking node healthy (default 15s)"`
+	Policy            string        `option:"policy" help:"placement policy (default 'REP 3')"`
 
 	SessionExpiration uint64
 }
@@ -43,15 +44,13 @@ func ParseConfig(s string) (interface{}, error) {
 
 	// strip prefix "neofs:"
 	s = s[6:]
-
 	u, err := url.Parse(s)
-
 	if err != nil {
 		return nil, errors.Wrap(err, "url.Parse")
 	}
 
 	cfg := NewConfig()
 	cfg.Container = strings.TrimPrefix(u.Path, "/")
-	cfg.Endpoint = u
+	cfg.Endpoint = strings.TrimSuffix(s, u.Path)
 	return cfg, nil
 }

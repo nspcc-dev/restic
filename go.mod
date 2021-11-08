@@ -29,6 +29,8 @@ require (
 	github.com/restic/chunker v0.4.0
 	github.com/spf13/cobra v1.2.1
 	github.com/spf13/pflag v1.0.5
+	github.com/stretchr/testify v1.7.0
+	github.com/testcontainers/testcontainers-go v0.11.1
 	golang.org/x/crypto v0.0.0-20210711020723-a769d52b0f97
 	golang.org/x/net v0.0.0-20210928044308-7d9f5e0b762b
 	golang.org/x/oauth2 v0.0.0-20210628180205-a41e5a781914

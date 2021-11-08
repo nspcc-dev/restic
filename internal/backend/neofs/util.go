@@ -6,7 +6,6 @@ import (
 	"fmt"
 	"io"
 	"strconv"
-	"strings"
 	"time"
 
 	"github.com/nspcc-dev/neo-go/cli/flags"
@@ -18,6 +17,7 @@ import (
 	"github.com/nspcc-dev/neofs-api-go/pkg/netmap"
 	"github.com/nspcc-dev/neofs-api-go/pkg/object"
 	"github.com/nspcc-dev/neofs-api-go/pkg/owner"
+	"github.com/nspcc-dev/neofs-sdk-go/policy"
 	"github.com/nspcc-dev/neofs-sdk-go/pool"
 )
 
@@ -38,14 +38,11 @@ func createPool(ctx context.Context, cfg Config) (pool.Pool, error) {
 		return nil, err
 	}
 
-	key := acc.PrivateKey()
-	uri := strings.TrimSuffix(cfg.Endpoint.String(), "/"+cfg.Container)
-
 	pb := new(pool.Builder)
-	pb.AddNode(uri, 1)
+	pb.AddNode(cfg.Endpoint, 1)
 
 	opts := &pool.BuilderOptions{
-		Key:                     &key.PrivateKey,
+		Key:                     &acc.PrivateKey().PrivateKey,
 		NodeConnectionTimeout:   cfg.Timeout,
 		NodeRequestTimeout:      cfg.Timeout,
 		ClientRebalanceInterval: cfg.RebalanceInterval,
@@ -77,10 +74,10 @@ func getAccount(cfg Config) (*wallet.Account, error) {
 	return acc, nil
 }
 
-func getContainerID(ctx context.Context, client pool.Pool, containerName string) (*cid.ID, error) {
+func getContainerID(ctx context.Context, client pool.Pool, containerName, placementPolicy string) (*cid.ID, error) {
 	cnrID, err := findContainerID(ctx, client, containerName)
 	if err != nil && errors.Is(err, ErrNotFound) {
-		return createContainer(ctx, client, containerName)
+		return createContainer(ctx, client, containerName, placementPolicy)
 	}
 
 	return cnrID, err
@@ -108,14 +105,14 @@ func findContainerID(ctx context.Context, client pool.Pool, containerName string
 	return nil, ErrNotFound
 }
 
-func createContainer(ctx context.Context, client pool.Pool, containerName string) (*cid.ID, error) {
-	pp := netmap.NewPlacementPolicy()
-	r := netmap.NewReplica()
-	r.SetCount(3)
-	pp.SetReplicas(r)
+func createContainer(ctx context.Context, client pool.Pool, containerName, placementPolicy string) (*cid.ID, error) {
+	pp, err := policy.Parse(placementPolicy)
+	if err != nil {
+		return nil, err
+	}
 
 	cnr := container.New(
-		container.WithPolicy(pp),
+		container.WithPolicy((*netmap.PlacementPolicy)(pp)),
 		container.WithCustomBasicACL(acl.PrivateBasicRule),
 		container.WithAttribute(container.AttributeName, containerName),
 		container.WithAttribute(container.AttributeTimestamp, strconv.FormatInt(time.Now().Unix(), 10)))
