@@ -671,6 +671,9 @@ func parseConfig(loc location.Location, opts options.Options) (interface{}, erro
 			cfg.RebalanceInterval = 20 * time.Second
 		}
 		cfg.SessionExpiration = math.MaxUint32
+		if cfg.Policy == "" {
+			cfg.Policy = "REP 3"
+		}
 
 		debug.Log("opening neofs repository at %#v", cfg)
 		return cfg, nil

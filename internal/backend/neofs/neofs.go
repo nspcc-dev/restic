@@ -46,7 +46,7 @@ func open(ctx context.Context, cfg Config) (restic.Backend, error) {
 		return nil, err
 	}
 
-	containerID, err := getContainerID(ctx, p, cfg.Container)
+	containerID, err := getContainerID(ctx, p, cfg.Container, cfg.Policy)
 	if err != nil {
 		return nil, err
 	}
