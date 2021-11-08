@@ -46,7 +46,7 @@ func open(ctx context.Context, cfg Config) (restic.Backend, error) {
 		return nil, err
 	}
 
-	containerID, err := getContainerID(ctx, p, cfg.Container)
+	containerID, err := getContainerID(ctx, p, cfg.Container, cfg.Policy)
 	if err != nil {
 		return nil, err
 	}
@@ -191,6 +191,15 @@ func (b *Backend) List(ctx context.Context, t restic.FileType, fn func(restic.Fi
 	}
 
 	return nil
+}
+
+func (b *Backend) Connections() uint {
+	// TODO(@KirillovDenis): use appropriate value
+	return 2
+}
+
+func (b *Backend) HasAtomicReplace() bool {
+	return false
 }
 
 func (b *Backend) IsNotExist(err error) bool {

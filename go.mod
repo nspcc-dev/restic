@@ -38,6 +38,8 @@ require (
 	github.com/rs/xid v1.4.0 // indirect
 	github.com/spf13/cobra v1.4.0
 	github.com/spf13/pflag v1.0.5
+	github.com/stretchr/testify v1.7.0
+	github.com/testcontainers/testcontainers-go v0.11.1
 	golang.org/x/crypto v0.0.0-20220321153916-2c7772ba3064
 	golang.org/x/net v0.0.0-20220325170049-de3da57026de
 	golang.org/x/oauth2 v0.0.0-20220309155454-6242fa91716a
