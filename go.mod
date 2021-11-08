@@ -19,6 +19,9 @@ require (
 	github.com/minio/minio-go/v7 v7.0.14
 	github.com/minio/sha256-simd v1.0.0
 	github.com/ncw/swift/v2 v2.0.0
+	github.com/nspcc-dev/neo-go v0.96.1
+	github.com/nspcc-dev/neofs-api-go v1.30.0
+	github.com/nspcc-dev/neofs-sdk-go v0.0.0-20211101145241-bd554c94d819
 	github.com/pkg/errors v0.9.1
 	github.com/pkg/profile v1.6.0
 	github.com/pkg/sftp v1.13.2
@@ -26,12 +29,12 @@ require (
 	github.com/restic/chunker v0.4.0
 	github.com/spf13/cobra v1.2.1
 	github.com/spf13/pflag v1.0.5
-	golang.org/x/crypto v0.0.0-20210616213533-5ff15b29337e
-	golang.org/x/net v0.0.0-20210614182718-04defd469f4e
+	golang.org/x/crypto v0.0.0-20210711020723-a769d52b0f97
+	golang.org/x/net v0.0.0-20210928044308-7d9f5e0b762b
 	golang.org/x/oauth2 v0.0.0-20210628180205-a41e5a781914
 	golang.org/x/sync v0.0.0-20210220032951-036812b2e83c
-	golang.org/x/sys v0.0.0-20210630005230-0f9fa26af87c
-	golang.org/x/text v0.3.6
+	golang.org/x/sys v0.0.0-20210927094055-39ccf1dd6fa6
+	golang.org/x/text v0.3.7
 	google.golang.org/api v0.50.0
 	gopkg.in/tomb.v2 v2.0.0-20161208151619-d5d1b5820637
 )
