@@ -27,7 +27,7 @@ require (
 	github.com/minio/minio-go/v7 v7.0.27
 	github.com/minio/sha256-simd v1.0.0
 	github.com/ncw/swift/v2 v2.0.1
-	github.com/nspcc-dev/neo-go v0.96.1
+	github.com/nspcc-dev/neo-go v0.97.3
 	github.com/nspcc-dev/neofs-api-go v1.30.0
 	github.com/nspcc-dev/neofs-sdk-go v0.0.0-20211101145241-bd554c94d819
 	github.com/pkg/errors v0.9.1

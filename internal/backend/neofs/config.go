@@ -19,24 +19,22 @@ type Config struct {
 	Password          string        `option:"password" help:"password to decrypt wallet"`
 	Timeout           time.Duration `option:"timeout" help:"timeout to connect and request (default 10s)"`
 	RebalanceInterval time.Duration `option:"rebalance" help:"interval between checking node healthy (default 15s)"`
-	Policy            string        `option:"policy" help:"placement policy (default 'REP 3')"`
 
 	SessionExpiration uint64
 }
 
 // NewConfig returns a new Config with the default values filled in.
 func NewConfig() Config {
-	return Config{
-		//Connections: 5,
-	}
+	return Config{}
 }
 
 func init() {
 	options.Register("neofs", Config{})
 }
 
-// ParseConfig parses the string s and extracts the neofs config. The
-// configuration format is neofs:grpcs://s01.neofs.devenv:8080/container-name.
+// ParseConfig parses the string s and extracts the neofs config.
+// The configuration format is neofs:grpcs://s01.neofs.devenv:8080/container,
+// where 'container' is container name or container id.
 func ParseConfig(s string) (interface{}, error) {
 	if !strings.HasPrefix(s, "neofs:") {
 		return nil, errors.New("neofs: invalid format")
