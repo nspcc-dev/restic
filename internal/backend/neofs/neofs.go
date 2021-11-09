@@ -13,6 +13,7 @@ import (
 	"github.com/nspcc-dev/neofs-api-go/pkg/object"
 	"github.com/nspcc-dev/neofs-sdk-go/pool"
 	"github.com/restic/restic/internal/backend"
+	"github.com/restic/restic/internal/debug"
 	"github.com/restic/restic/internal/restic"
 )
 
@@ -46,11 +47,11 @@ func open(ctx context.Context, cfg Config) (restic.Backend, error) {
 		return nil, err
 	}
 
-	containerID, err := getContainerID(ctx, p, cfg.Container, cfg.Policy)
+	containerID, err := getContainerID(ctx, p, cfg.Container)
 	if err != nil {
 		return nil, err
 	}
-	fmt.Println("container repo", containerID.String())
+	debug.Log("container repo: %s", containerID.String())
 
 	return &Backend{
 		client: p,

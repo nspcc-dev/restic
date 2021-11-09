@@ -5,13 +5,19 @@ import (
 	"io"
 	"math"
 	"os"
+	"strconv"
 	"testing"
 	"time"
 
 	"github.com/nspcc-dev/neo-go/pkg/crypto/keys"
 	"github.com/nspcc-dev/neo-go/pkg/wallet"
+	"github.com/nspcc-dev/neofs-api-go/pkg/acl"
+	"github.com/nspcc-dev/neofs-api-go/pkg/client"
+	"github.com/nspcc-dev/neofs-api-go/pkg/container"
+	cid "github.com/nspcc-dev/neofs-api-go/pkg/container/id"
 	"github.com/nspcc-dev/neofs-api-go/pkg/netmap"
 	"github.com/nspcc-dev/neofs-sdk-go/policy"
+	"github.com/nspcc-dev/neofs-sdk-go/pool"
 	"github.com/restic/restic/internal/restic"
 	"github.com/stretchr/testify/require"
 	"github.com/testcontainers/testcontainers-go"
@@ -33,12 +39,16 @@ func TestIntegration(t *testing.T) {
 		Timeout:           10 * time.Second,
 		RebalanceInterval: 20 * time.Second,
 		SessionExpiration: math.MaxUint32,
-		Policy:            "REP 1",
 	}
 
 	for _, version := range versions {
 		ctx, cancel := context.WithCancel(rootCtx)
 		aioContainer := createDockerContainer(ctx, t, aioImage+version)
+
+		p, err := createPool(ctx, cfg)
+		require.NoError(t, err)
+		_, err = createContainer(ctx, p, cfg.Container, "REP 1")
+		require.NoError(t, err)
 
 		backend, err := Open(ctx, cfg)
 		require.NoError(t, err)
@@ -49,15 +59,6 @@ func TestIntegration(t *testing.T) {
 		require.NoError(t, err)
 		cancel()
 	}
-}
-
-func TestPolicy(t *testing.T) {
-	pp, err := policy.Parse("REP 3")
-	require.NoError(t, err)
-
-	placementPolicy := (*netmap.PlacementPolicy)(pp)
-	require.NotNil(t, placementPolicy)
-	require.Equal(t, placementPolicy.Replicas()[0].Count(), uint32(3))
 }
 
 func simpleStoreLoad(ctx context.Context, t *testing.T, backend restic.Backend) {
@@ -80,6 +81,51 @@ func simpleStoreLoad(ctx context.Context, t *testing.T, backend restic.Backend) 
 	})
 	require.NoError(t, err)
 
+}
+
+func createContainer(ctx context.Context, client pool.Pool, containerName, placementPolicy string) (*cid.ID, error) {
+	pp, err := policy.Parse(placementPolicy)
+	if err != nil {
+		return nil, err
+	}
+
+	cnr := container.New(
+		container.WithPolicy((*netmap.PlacementPolicy)(pp)),
+		container.WithCustomBasicACL(acl.PrivateBasicRule),
+		container.WithAttribute(container.AttributeName, containerName),
+		container.WithAttribute(container.AttributeTimestamp, strconv.FormatInt(time.Now().Unix(), 10)))
+	cnr.SetOwnerID(client.OwnerID())
+
+	containerID, err := client.PutContainer(ctx, cnr)
+	if err != nil {
+		return nil, err
+	}
+
+	err = waitPresence(ctx, client, containerID)
+	return containerID, err
+}
+
+func waitPresence(ctx context.Context, cli client.Container, cnrID *cid.ID) error {
+	wctx, cancel := context.WithTimeout(ctx, 30*time.Second)
+	defer cancel()
+	ticker := time.NewTimer(5 * time.Second)
+	defer ticker.Stop()
+	wdone := wctx.Done()
+	done := ctx.Done()
+	for {
+		select {
+		case <-done:
+			return ctx.Err()
+		case <-wdone:
+			return wctx.Err()
+		case <-ticker.C:
+			_, err := cli.GetContainer(ctx, cnrID)
+			if err == nil {
+				return nil
+			}
+			ticker.Reset(5 * time.Second)
+		}
+	}
 }
 
 func createWallet(t *testing.T) string {
