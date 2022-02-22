@@ -5,7 +5,6 @@ import (
 	"context"
 	"fmt"
 	"io"
-	"math"
 	"os"
 	"path/filepath"
 	"runtime"
@@ -670,7 +669,6 @@ func parseConfig(loc location.Location, opts options.Options) (interface{}, erro
 		if cfg.RebalanceInterval <= 0 {
 			cfg.RebalanceInterval = 20 * time.Second
 		}
-		cfg.SessionExpiration = math.MaxUint32
 
 		debug.Log("opening neofs repository at %#v", cfg)
 		return cfg, nil

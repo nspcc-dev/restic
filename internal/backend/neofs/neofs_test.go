@@ -3,7 +3,6 @@ package neofs
 import (
 	"context"
 	"io"
-	"math"
 	"os"
 	"strconv"
 	"testing"
@@ -11,11 +10,10 @@ import (
 
 	"github.com/nspcc-dev/neo-go/pkg/crypto/keys"
 	"github.com/nspcc-dev/neo-go/pkg/wallet"
-	"github.com/nspcc-dev/neofs-api-go/pkg/acl"
-	"github.com/nspcc-dev/neofs-api-go/pkg/client"
-	"github.com/nspcc-dev/neofs-api-go/pkg/container"
-	cid "github.com/nspcc-dev/neofs-api-go/pkg/container/id"
-	"github.com/nspcc-dev/neofs-api-go/pkg/netmap"
+	"github.com/nspcc-dev/neofs-sdk-go/acl"
+	"github.com/nspcc-dev/neofs-sdk-go/container"
+	cid "github.com/nspcc-dev/neofs-sdk-go/container/id"
+	"github.com/nspcc-dev/neofs-sdk-go/netmap"
 	"github.com/nspcc-dev/neofs-sdk-go/policy"
 	"github.com/nspcc-dev/neofs-sdk-go/pool"
 	"github.com/restic/restic/internal/restic"
@@ -30,7 +28,7 @@ func TestIntegration(t *testing.T) {
 
 	rootCtx := context.Background()
 	aioImage := "nspccdev/neofs-aio-testcontainer:"
-	versions := []string{"0.24.0", "0.25.1", "latest"}
+	versions := []string{"0.24.0", "0.25.1", "0.26.0", "0.27.0", "latest"}
 
 	cfg := Config{
 		Endpoint:          "localhost:8080",
@@ -38,7 +36,6 @@ func TestIntegration(t *testing.T) {
 		Wallet:            filename,
 		Timeout:           10 * time.Second,
 		RebalanceInterval: 20 * time.Second,
-		SessionExpiration: math.MaxUint32,
 	}
 
 	for _, version := range versions {
@@ -105,7 +102,7 @@ func createContainer(ctx context.Context, client pool.Pool, containerName, place
 	return containerID, err
 }
 
-func waitPresence(ctx context.Context, cli client.Container, cnrID *cid.ID) error {
+func waitPresence(ctx context.Context, cli pool.Container, cnrID *cid.ID) error {
 	wctx, cancel := context.WithTimeout(ctx, 30*time.Second)
 	defer cancel()
 	ticker := time.NewTimer(5 * time.Second)

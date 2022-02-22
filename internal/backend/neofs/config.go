@@ -19,8 +19,6 @@ type Config struct {
 	Password          string        `option:"password" help:"password to decrypt wallet"`
 	Timeout           time.Duration `option:"timeout" help:"timeout to connect and request (default 10s)"`
 	RebalanceInterval time.Duration `option:"rebalance" help:"interval between checking node healthy (default 15s)"`
-
-	SessionExpiration uint64
 }
 
 // NewConfig returns a new Config with the default values filled in.

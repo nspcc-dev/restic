@@ -1,19 +1,20 @@
 package neofs
 
 import (
-	"bytes"
 	"context"
 	"fmt"
 	"hash"
 	"io"
 	"strings"
 
-	"github.com/nspcc-dev/neofs-api-go/pkg/client"
-	cid "github.com/nspcc-dev/neofs-api-go/pkg/container/id"
-	"github.com/nspcc-dev/neofs-api-go/pkg/object"
+	cid "github.com/nspcc-dev/neofs-sdk-go/container/id"
+	"github.com/nspcc-dev/neofs-sdk-go/object"
+	"github.com/nspcc-dev/neofs-sdk-go/object/address"
+	oid "github.com/nspcc-dev/neofs-sdk-go/object/id"
 	"github.com/nspcc-dev/neofs-sdk-go/pool"
 	"github.com/restic/restic/internal/backend"
 	"github.com/restic/restic/internal/debug"
+	"github.com/restic/restic/internal/errors"
 	"github.com/restic/restic/internal/restic"
 )
 
@@ -27,7 +28,7 @@ type (
 	// ObjInfo represents inner file info.
 	ObjInfo struct {
 		restic.FileInfo
-		address *object.Address
+		address *address.Address
 	}
 )
 
@@ -68,13 +69,11 @@ func (b *Backend) Hasher() hash.Hash {
 }
 
 func (b *Backend) Test(ctx context.Context, h restic.Handle) (bool, error) {
-	name := getName(h)
-	opts := object.NewSearchFilters()
-	opts.AddRootFilter()
-	opts.AddFilter(object.AttributeFileName, name, object.MatchStringEqual)
+	filters := map[string]string{
+		object.AttributeFileName: getName(h),
+	}
 
-	p := new(client.SearchObjectParams).WithContainerID(b.cnrID).WithSearchFilters(opts)
-	ids, err := b.client.SearchObject(ctx, p)
+	ids, err := b.searchObjects(ctx, filters)
 	return len(ids) != 0, err
 }
 
@@ -84,8 +83,7 @@ func (b *Backend) Remove(ctx context.Context, h restic.Handle) error {
 		return err
 	}
 
-	p := new(client.DeleteObjectParams).WithAddress(objInfo.address)
-	return b.client.DeleteObject(ctx, p)
+	return b.client.DeleteObject(ctx, *objInfo.address)
 }
 
 func (b *Backend) Close() error {
@@ -96,9 +94,8 @@ func (b *Backend) Close() error {
 func (b *Backend) Save(ctx context.Context, h restic.Handle, rd restic.RewindReader) error {
 	name := getName(h)
 	rawObj := formRawObject(b.client.OwnerID(), b.cnrID, name, map[string]string{attrResticType: string(h.Type)})
-	p := new(client.PutObjectParams).WithObject(rawObj.Object()).WithPayloadReader(rd)
 
-	_, err := b.client.PutObject(ctx, p)
+	_, err := b.client.PutObject(ctx, *rawObj.Object(), rd)
 	return err
 }
 
@@ -112,21 +109,17 @@ func (b *Backend) openReader(ctx context.Context, h restic.Handle, length int, o
 		return nil, err
 	}
 
-	rang := object.NewRange()
-	rang.SetOffset(uint64(offset))
-	if length != 0 {
-		rang.SetLength(uint64(length))
-	} else {
-		rang.SetLength(uint64(objInfo.Size - offset))
+	ln := uint64(length)
+	if ln == 0 {
+		ln = uint64(objInfo.Size - offset)
 	}
 
-	ops := new(client.RangeDataParams).WithAddress(objInfo.address).WithRange(rang)
-	data, err := b.client.ObjectPayloadRangeData(ctx, ops)
+	res, err := b.client.ObjectRange(ctx, *objInfo.address, uint64(offset), ln)
 	if err != nil {
 		return nil, err
 	}
 
-	return &BuffCloser{Reader: bytes.NewReader(data)}, nil
+	return res, nil
 }
 
 func (b *Backend) stat(ctx context.Context, h restic.Handle) (*ObjInfo, error) {
@@ -144,9 +137,8 @@ func (b *Backend) stat(ctx context.Context, h restic.Handle) (*ObjInfo, error) {
 		return nil, fmt.Errorf("not found exactly one file: %s", name)
 	}
 
-	addr := newAddress(b.cnrID, ids[0])
-	hp := new(client.ObjectHeaderParams).WithAddress(addr)
-	obj, err := b.client.GetObjectHeader(ctx, hp)
+	addr := newAddress(b.cnrID, &ids[0])
+	obj, err := b.client.HeadObject(ctx, *addr)
 	if err != nil {
 		return nil, err
 	}
@@ -174,10 +166,9 @@ func (b *Backend) List(ctx context.Context, t restic.FileType, fn func(restic.Fi
 		return err
 	}
 
-	for _, oid := range ids {
-		addr := newAddress(b.cnrID, oid)
-		hp := new(client.ObjectHeaderParams).WithAddress(addr)
-		obj, err := b.client.GetObjectHeader(ctx, hp)
+	for _, id := range ids {
+		addr := newAddress(b.cnrID, &id)
+		obj, err := b.client.HeadObject(ctx, *addr)
 		if err != nil {
 			return err
 		}
@@ -202,7 +193,7 @@ func (b *Backend) Delete(ctx context.Context) error {
 	return b.client.DeleteContainer(ctx, b.cnrID)
 }
 
-func (b *Backend) searchObjects(ctx context.Context, filters map[string]string) ([]*object.ID, error) {
+func (b *Backend) searchObjects(ctx context.Context, filters map[string]string) ([]oid.ID, error) {
 	opts := object.NewSearchFilters()
 	opts.AddRootFilter()
 
@@ -210,8 +201,7 @@ func (b *Backend) searchObjects(ctx context.Context, filters map[string]string) 
 		opts.AddFilter(key, val, object.MatchStringEqual)
 	}
 
-	p := new(client.SearchObjectParams).WithContainerID(b.cnrID).WithSearchFilters(opts)
-	return b.client.SearchObject(ctx, p)
+	return searchObjects(ctx, b.client, b.cnrID, opts)
 }
 
 func getName(h restic.Handle) string {
@@ -220,4 +210,35 @@ func getName(h restic.Handle) string {
 		name = "config"
 	}
 	return name
+}
+
+func searchObjects(ctx context.Context, sdkPool pool.Pool, cnrID *cid.ID, filters object.SearchFilters) ([]oid.ID, error) {
+	res, err := sdkPool.SearchObjects(ctx, *cnrID, filters)
+	if err != nil {
+		return nil, fmt.Errorf("init searching using client: %w", err)
+	}
+
+	defer res.Close()
+
+	var num, read int
+	buf := make([]oid.ID, 10)
+
+	for {
+		num, err = res.Read(buf[read:])
+		if num > 0 {
+			read += num
+			buf = append(buf, oid.ID{})
+			buf = buf[:cap(buf)]
+		}
+
+		if err != nil {
+			if errors.Is(err, io.EOF) {
+				break
+			}
+
+			return nil, fmt.Errorf("couldn't read found objects: %w", err)
+		}
+	}
+
+	return buf[:read], nil
 }

@@ -9,10 +9,12 @@ import (
 
 	"github.com/nspcc-dev/neo-go/cli/flags"
 	"github.com/nspcc-dev/neo-go/pkg/wallet"
-	"github.com/nspcc-dev/neofs-api-go/pkg/container"
-	cid "github.com/nspcc-dev/neofs-api-go/pkg/container/id"
-	"github.com/nspcc-dev/neofs-api-go/pkg/object"
-	"github.com/nspcc-dev/neofs-api-go/pkg/owner"
+	"github.com/nspcc-dev/neofs-sdk-go/container"
+	cid "github.com/nspcc-dev/neofs-sdk-go/container/id"
+	"github.com/nspcc-dev/neofs-sdk-go/object"
+	"github.com/nspcc-dev/neofs-sdk-go/object/address"
+	oid "github.com/nspcc-dev/neofs-sdk-go/object/id"
+	"github.com/nspcc-dev/neofs-sdk-go/owner"
 	"github.com/nspcc-dev/neofs-sdk-go/pool"
 )
 
@@ -32,14 +34,13 @@ func createPool(ctx context.Context, cfg Config) (pool.Pool, error) {
 	}
 
 	pb := new(pool.Builder)
-	pb.AddNode(cfg.Endpoint, 1)
+	pb.AddNode(cfg.Endpoint, 1, 1)
 
 	opts := &pool.BuilderOptions{
 		Key:                     &acc.PrivateKey().PrivateKey,
 		NodeConnectionTimeout:   cfg.Timeout,
 		NodeRequestTimeout:      cfg.Timeout,
 		ClientRebalanceInterval: cfg.RebalanceInterval,
-		SessionExpirationEpoch:  cfg.SessionExpiration,
 	}
 
 	return pb.Build(ctx, opts)
@@ -124,11 +125,11 @@ func formRawObject(own *owner.ID, cnrID *cid.ID, name string, header map[string]
 	return raw
 }
 
-func newAddress(cid *cid.ID, oid *object.ID) *object.Address {
-	address := object.NewAddress()
-	address.SetContainerID(cid)
-	address.SetObjectID(oid)
-	return address
+func newAddress(cid *cid.ID, oid *oid.ID) *address.Address {
+	addr := address.NewAddress()
+	addr.SetContainerID(cid)
+	addr.SetObjectID(oid)
+	return addr
 }
 
 func getNameAttr(obj *object.Object) string {
