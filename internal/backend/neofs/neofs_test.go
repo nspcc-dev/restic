@@ -2,6 +2,7 @@ package neofs
 
 import (
 	"context"
+	"fmt"
 	"io"
 	"os"
 	"strconv"
@@ -10,12 +11,12 @@ import (
 
 	"github.com/nspcc-dev/neo-go/pkg/crypto/keys"
 	"github.com/nspcc-dev/neo-go/pkg/wallet"
-	"github.com/nspcc-dev/neofs-sdk-go/acl"
 	"github.com/nspcc-dev/neofs-sdk-go/container"
+	"github.com/nspcc-dev/neofs-sdk-go/container/acl"
 	cid "github.com/nspcc-dev/neofs-sdk-go/container/id"
 	"github.com/nspcc-dev/neofs-sdk-go/netmap"
-	"github.com/nspcc-dev/neofs-sdk-go/policy"
 	"github.com/nspcc-dev/neofs-sdk-go/pool"
+	"github.com/nspcc-dev/neofs-sdk-go/user"
 	"github.com/restic/restic/internal/restic"
 	"github.com/stretchr/testify/require"
 	"github.com/testcontainers/testcontainers-go"
@@ -28,7 +29,11 @@ func TestIntegration(t *testing.T) {
 
 	rootCtx := context.Background()
 	aioImage := "nspccdev/neofs-aio-testcontainer:"
-	versions := []string{"0.24.0", "0.25.1", "0.26.0", "0.27.0", "latest"}
+	versions := []string{
+		"0.27.7",
+		"0.28.1",
+		"latest",
+	}
 
 	cfg := Config{
 		Endpoint:          "localhost:8080",
@@ -38,13 +43,19 @@ func TestIntegration(t *testing.T) {
 		RebalanceInterval: 20 * time.Second,
 	}
 
+	acc, err := getAccount(cfg)
+	require.NoError(t, err)
+
+	var owner user.ID
+	user.IDFromKey(&owner, acc.PrivateKey().PrivateKey.PublicKey)
+
 	for _, version := range versions {
 		ctx, cancel := context.WithCancel(rootCtx)
 		aioContainer := createDockerContainer(ctx, t, aioImage+version)
 
-		p, err := createPool(ctx, cfg)
+		p, err := createPool(ctx, acc, cfg)
 		require.NoError(t, err)
-		_, err = createContainer(ctx, p, cfg.Container, "REP 1")
+		_, err = createContainer(ctx, p, &owner, cfg.Container, "REP 1")
 		require.NoError(t, err)
 
 		backend, err := Open(ctx, cfg)
@@ -80,49 +91,32 @@ func simpleStoreLoad(ctx context.Context, t *testing.T, backend restic.Backend) 
 
 }
 
-func createContainer(ctx context.Context, client pool.Pool, containerName, placementPolicy string) (*cid.ID, error) {
-	pp, err := policy.Parse(placementPolicy)
-	if err != nil {
-		return nil, err
+func createContainer(ctx context.Context, client *pool.Pool, owner *user.ID, containerName, placementPolicy string) (*cid.ID, error) {
+	var pp netmap.PlacementPolicy
+	if err := pp.DecodeString(placementPolicy); err != nil {
+		return nil, fmt.Errorf("decode policy: %w", err)
 	}
 
 	cnr := container.New(
-		container.WithPolicy((*netmap.PlacementPolicy)(pp)),
-		container.WithCustomBasicACL(acl.PrivateBasicRule),
+		container.WithPolicy(&pp),
+		container.WithCustomBasicACL(acl.Private),
 		container.WithAttribute(container.AttributeName, containerName),
 		container.WithAttribute(container.AttributeTimestamp, strconv.FormatInt(time.Now().Unix(), 10)))
-	cnr.SetOwnerID(client.OwnerID())
+	cnr.SetOwnerID(owner)
 
-	containerID, err := client.PutContainer(ctx, cnr)
+	var wp pool.WaitParams
+	wp.SetPollInterval(5 * time.Second)
+	wp.SetTimeout(30 * time.Second)
+	var prm pool.PrmContainerPut
+	prm.SetContainer(*cnr)
+	prm.SetWaitParams(wp)
+
+	containerID, err := client.PutContainer(ctx, prm)
 	if err != nil {
-		return nil, err
+		return nil, fmt.Errorf("put container: %w", err)
 	}
 
-	err = waitPresence(ctx, client, containerID)
-	return containerID, err
-}
-
-func waitPresence(ctx context.Context, cli pool.Container, cnrID *cid.ID) error {
-	wctx, cancel := context.WithTimeout(ctx, 30*time.Second)
-	defer cancel()
-	ticker := time.NewTimer(5 * time.Second)
-	defer ticker.Stop()
-	wdone := wctx.Done()
-	done := ctx.Done()
-	for {
-		select {
-		case <-done:
-			return ctx.Err()
-		case <-wdone:
-			return wctx.Err()
-		case <-ticker.C:
-			_, err := cli.GetContainer(ctx, cnrID)
-			if err == nil {
-				return nil
-			}
-			ticker.Reset(5 * time.Second)
-		}
-	}
+	return containerID, nil
 }
 
 func createWallet(t *testing.T) string {
