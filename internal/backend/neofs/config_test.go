@@ -8,8 +8,9 @@ func TestParseConfig(t *testing.T) {
 		cfg Config
 	}{
 		{"neofs:grpcs://s01.neofs.devenv:8080/container-name", Config{
-			Endpoint:  "grpcs://s01.neofs.devenv:8080",
-			Container: "container-name",
+			Endpoint:    "grpcs://s01.neofs.devenv:8080",
+			Container:   "container-name",
+			Connections: 5,
 		}},
 	} {
 		cfg, err := ParseConfig(test.s)

@@ -13,6 +13,7 @@ import (
 	"github.com/nspcc-dev/neofs-sdk-go/pool"
 	"github.com/nspcc-dev/neofs-sdk-go/user"
 	"github.com/restic/restic/internal/backend"
+	"github.com/restic/restic/internal/backend/sema"
 	"github.com/restic/restic/internal/debug"
 	"github.com/restic/restic/internal/restic"
 )
@@ -23,6 +24,9 @@ type (
 		client *pool.Pool
 		owner  *user.ID
 		cnrID  cid.ID
+
+		sem         sema.Semaphore
+		connections uint
 	}
 
 	// ObjInfo represents inner file info.
@@ -43,6 +47,11 @@ func Create(ctx context.Context, cfg Config) (restic.Backend, error) {
 }
 
 func open(ctx context.Context, cfg Config) (restic.Backend, error) {
+	sem, err := sema.New(cfg.Connections)
+	if err != nil {
+		return nil, err
+	}
+
 	acc, err := getAccount(cfg)
 	if err != nil {
 		return nil, err
@@ -63,9 +72,11 @@ func open(ctx context.Context, cfg Config) (restic.Backend, error) {
 	debug.Log("container repo: %s", containerID.String())
 
 	return &Backend{
-		client: p,
-		owner:  &owner,
-		cnrID:  containerID,
+		client:      p,
+		owner:       &owner,
+		cnrID:       containerID,
+		sem:         sem,
+		connections: cfg.Connections,
 	}, nil
 }
 
@@ -86,6 +97,9 @@ func (b *Backend) Test(ctx context.Context, h restic.Handle) (bool, error) {
 	prmSearch.SetContainerID(b.cnrID)
 	prmSearch.SetFilters(filters)
 
+	b.sem.GetToken()
+	defer b.sem.ReleaseToken()
+
 	res, err := b.client.SearchObjects(ctx, prmSearch)
 	if err != nil {
 		return false, fmt.Errorf("search objects: %w", err)
@@ -105,6 +119,9 @@ func (b *Backend) Test(ctx context.Context, h restic.Handle) (bool, error) {
 }
 
 func (b *Backend) Remove(ctx context.Context, h restic.Handle) error {
+	b.sem.GetToken()
+	defer b.sem.ReleaseToken()
+
 	objInfo, err := b.stat(ctx, h)
 	if err != nil {
 		return err
@@ -129,6 +146,9 @@ func (b *Backend) Save(ctx context.Context, h restic.Handle, rd restic.RewindRea
 	prm.SetHeader(*obj)
 	prm.SetPayload(rd)
 
+	b.sem.GetToken()
+	defer b.sem.ReleaseToken()
+
 	_, err := b.client.PutObject(ctx, prm)
 	return err
 }
@@ -138,8 +158,13 @@ func (b *Backend) Load(ctx context.Context, h restic.Handle, length int, offset 
 }
 
 func (b *Backend) openReader(ctx context.Context, h restic.Handle, length int, offset int64) (io.ReadCloser, error) {
+	b.sem.GetToken()
+	ctx, cancel := context.WithCancel(ctx)
+
 	objInfo, err := b.stat(ctx, h)
 	if err != nil {
+		cancel()
+		b.sem.ReleaseToken()
 		return nil, err
 	}
 
@@ -155,10 +180,12 @@ func (b *Backend) openReader(ctx context.Context, h restic.Handle, length int, o
 
 	res, err := b.client.ObjectRange(ctx, prm)
 	if err != nil {
+		cancel()
+		b.sem.ReleaseToken()
 		return nil, err
 	}
 
-	return res, nil
+	return b.sem.ReleaseTokenOnClose(res, cancel), nil
 }
 
 func (b *Backend) stat(ctx context.Context, h restic.Handle) (*ObjInfo, error) {
@@ -222,6 +249,9 @@ func (b *Backend) stat(ctx context.Context, h restic.Handle) (*ObjInfo, error) {
 }
 
 func (b *Backend) Stat(ctx context.Context, h restic.Handle) (restic.FileInfo, error) {
+	b.sem.GetToken()
+	defer b.sem.ReleaseToken()
+
 	objInfo, err := b.stat(ctx, h)
 	if err != nil {
 		return restic.FileInfo{}, err
@@ -237,6 +267,9 @@ func (b *Backend) List(ctx context.Context, t restic.FileType, fn func(restic.Fi
 	var prmSearch pool.PrmObjectSearch
 	prmSearch.SetContainerID(b.cnrID)
 	prmSearch.SetFilters(filters)
+
+	b.sem.GetToken()
+	defer b.sem.ReleaseToken()
 
 	res, err := b.client.SearchObjects(ctx, prmSearch)
 	if err != nil {
@@ -283,8 +316,7 @@ func (b *Backend) List(ctx context.Context, t restic.FileType, fn func(restic.Fi
 }
 
 func (b *Backend) Connections() uint {
-	// TODO(@KirillovDenis): use appropriate value
-	return 2
+	return b.connections
 }
 
 func (b *Backend) HasAtomicReplace() bool {
@@ -298,6 +330,9 @@ func (b *Backend) IsNotExist(err error) bool {
 func (b *Backend) Delete(ctx context.Context) error {
 	var prm pool.PrmContainerDelete
 	prm.SetContainerID(b.cnrID)
+
+	b.sem.GetToken()
+	defer b.sem.ReleaseToken()
 
 	if err := b.client.DeleteContainer(ctx, prm); err != nil {
 		return fmt.Errorf("delete container: %w", err)

@@ -19,11 +19,15 @@ type Config struct {
 	Password          string        `option:"password" help:"password to decrypt wallet"`
 	Timeout           time.Duration `option:"timeout" help:"timeout to connect and request (default 10s)"`
 	RebalanceInterval time.Duration `option:"rebalance" help:"interval between checking node healthy (default 15s)"`
+
+	Connections uint `option:"connections" help:"set a limit for the number of concurrent connections (default: 5)"`
 }
 
 // NewConfig returns a new Config with the default values filled in.
 func NewConfig() Config {
-	return Config{}
+	return Config{
+		Connections: 5,
+	}
 }
 
 func init() {
