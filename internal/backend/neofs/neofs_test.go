@@ -41,6 +41,7 @@ func TestIntegration(t *testing.T) {
 		Wallet:            filename,
 		Timeout:           10 * time.Second,
 		RebalanceInterval: 20 * time.Second,
+		Connections:       1,
 	}
 
 	acc, err := getAccount(cfg)
@@ -61,7 +62,8 @@ func TestIntegration(t *testing.T) {
 		backend, err := Open(ctx, cfg)
 		require.NoError(t, err)
 
-		t.Run("simple store and load "+version, func(t *testing.T) { simpleStoreLoad(ctx, t, backend) })
+		t.Run("simple store load delete "+version, func(t *testing.T) { simpleStoreLoadDelete(ctx, t, backend) })
+		t.Run("list "+version, func(t *testing.T) { simpleList(ctx, t, backend) })
 
 		err = aioContainer.Terminate(ctx)
 		require.NoError(t, err)
@@ -69,7 +71,7 @@ func TestIntegration(t *testing.T) {
 	}
 }
 
-func simpleStoreLoad(ctx context.Context, t *testing.T, backend restic.Backend) {
+func simpleStoreLoadDelete(ctx context.Context, t *testing.T, backend restic.Backend) {
 	h := restic.Handle{
 		Type:              restic.PackFile,
 		ContainedBlobType: restic.DataBlob,
@@ -89,6 +91,30 @@ func simpleStoreLoad(ctx context.Context, t *testing.T, backend restic.Backend) 
 	})
 	require.NoError(t, err)
 
+	err = backend.Remove(ctx, h)
+	require.NoError(t, err)
+}
+
+func simpleList(ctx context.Context, t *testing.T, backend restic.Backend) {
+	h := restic.Handle{
+		Type:              restic.PackFile,
+		ContainedBlobType: restic.DataBlob,
+		Name:              "some-file-for-list",
+	}
+
+	content := []byte("content")
+
+	err := backend.Save(ctx, h, restic.NewByteReader(content, nil))
+	require.NoError(t, err)
+
+	var count int
+	err = backend.List(ctx, restic.PackFile, func(info restic.FileInfo) error {
+		count++
+		require.Equal(t, h.Name, info.Name)
+		return nil
+	})
+	require.NoError(t, err)
+	require.Equal(t, 1, count)
 }
 
 func createContainer(ctx context.Context, client *pool.Pool, owner *user.ID, containerName, placementPolicy string) (*cid.ID, error) {
