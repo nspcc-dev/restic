@@ -9,26 +9,26 @@ import (
 
 	cid "github.com/nspcc-dev/neofs-sdk-go/container/id"
 	"github.com/nspcc-dev/neofs-sdk-go/object"
-	"github.com/nspcc-dev/neofs-sdk-go/object/address"
 	oid "github.com/nspcc-dev/neofs-sdk-go/object/id"
 	"github.com/nspcc-dev/neofs-sdk-go/pool"
+	"github.com/nspcc-dev/neofs-sdk-go/user"
 	"github.com/restic/restic/internal/backend"
 	"github.com/restic/restic/internal/debug"
-	"github.com/restic/restic/internal/errors"
 	"github.com/restic/restic/internal/restic"
 )
 
 type (
 	// Backend stores data on a neofs storage.
 	Backend struct {
-		client pool.Pool
-		cnrID  *cid.ID
+		client *pool.Pool
+		owner  *user.ID
+		cnrID  cid.ID
 	}
 
 	// ObjInfo represents inner file info.
 	ObjInfo struct {
 		restic.FileInfo
-		address *address.Address
+		address oid.Address
 	}
 )
 
@@ -43,19 +43,28 @@ func Create(ctx context.Context, cfg Config) (restic.Backend, error) {
 }
 
 func open(ctx context.Context, cfg Config) (restic.Backend, error) {
-	p, err := createPool(ctx, cfg)
+	acc, err := getAccount(cfg)
 	if err != nil {
 		return nil, err
 	}
 
-	containerID, err := getContainerID(ctx, p, cfg.Container)
+	var owner user.ID
+	user.IDFromKey(&owner, acc.PrivateKey().PrivateKey.PublicKey)
+
+	p, err := createPool(ctx, acc, cfg)
 	if err != nil {
 		return nil, err
+	}
+
+	containerID, err := getContainerID(ctx, p, owner, cfg.Container)
+	if err != nil {
+		return nil, fmt.Errorf("failed to resolve container id: %w", err)
 	}
 	debug.Log("container repo: %s", containerID.String())
 
 	return &Backend{
 		client: p,
+		owner:  &owner,
 		cnrID:  containerID,
 	}, nil
 }
@@ -69,12 +78,30 @@ func (b *Backend) Hasher() hash.Hash {
 }
 
 func (b *Backend) Test(ctx context.Context, h restic.Handle) (bool, error) {
-	filters := map[string]string{
-		object.AttributeFileName: getName(h),
+	filters := object.NewSearchFilters()
+	filters.AddRootFilter()
+	filters.AddFilter(object.AttributeFileName, getName(h), object.MatchStringEqual)
+
+	var prmSearch pool.PrmObjectSearch
+	prmSearch.SetContainerID(b.cnrID)
+	prmSearch.SetFilters(filters)
+
+	res, err := b.client.SearchObjects(ctx, prmSearch)
+	if err != nil {
+		return false, fmt.Errorf("search objects: %w", err)
 	}
 
-	ids, err := b.searchObjects(ctx, filters)
-	return len(ids) != 0, err
+	defer res.Close()
+
+	err = res.Iterate(func(id oid.ID) bool {
+		return true
+	})
+	if err != nil {
+		return false, fmt.Errorf("iterate objects: %w", err)
+	}
+
+	return true, nil
+
 }
 
 func (b *Backend) Remove(ctx context.Context, h restic.Handle) error {
@@ -83,7 +110,10 @@ func (b *Backend) Remove(ctx context.Context, h restic.Handle) error {
 		return err
 	}
 
-	return b.client.DeleteObject(ctx, *objInfo.address)
+	var prm pool.PrmObjectDelete
+	prm.SetAddress(objInfo.address)
+
+	return b.client.DeleteObject(ctx, prm)
 }
 
 func (b *Backend) Close() error {
@@ -93,9 +123,13 @@ func (b *Backend) Close() error {
 
 func (b *Backend) Save(ctx context.Context, h restic.Handle, rd restic.RewindReader) error {
 	name := getName(h)
-	rawObj := formRawObject(b.client.OwnerID(), b.cnrID, name, map[string]string{attrResticType: string(h.Type)})
+	obj := formRawObject(b.owner, b.cnrID, name, map[string]string{attrResticType: string(h.Type)})
 
-	_, err := b.client.PutObject(ctx, *rawObj.Object(), rd)
+	var prm pool.PrmObjectPut
+	prm.SetHeader(*obj)
+	prm.SetPayload(rd)
+
+	_, err := b.client.PutObject(ctx, prm)
 	return err
 }
 
@@ -114,7 +148,12 @@ func (b *Backend) openReader(ctx context.Context, h restic.Handle, length int, o
 		ln = uint64(objInfo.Size - offset)
 	}
 
-	res, err := b.client.ObjectRange(ctx, *objInfo.address, uint64(offset), ln)
+	var prm pool.PrmObjectRange
+	prm.SetAddress(objInfo.address)
+	prm.SetOffset(uint64(offset))
+	prm.SetLength(ln)
+
+	res, err := b.client.ObjectRange(ctx, prm)
 	if err != nil {
 		return nil, err
 	}
@@ -124,21 +163,51 @@ func (b *Backend) openReader(ctx context.Context, h restic.Handle, length int, o
 
 func (b *Backend) stat(ctx context.Context, h restic.Handle) (*ObjInfo, error) {
 	name := getName(h)
-	filters := map[string]string{
-		object.AttributeFileName: name,
-		attrResticType:           string(h.Type),
-	}
+	filters := object.NewSearchFilters()
+	filters.AddRootFilter()
+	filters.AddFilter(object.AttributeFileName, name, object.MatchStringEqual)
+	filters.AddFilter(attrResticType, string(h.Type), object.MatchStringEqual)
 
-	ids, err := b.searchObjects(ctx, filters)
+	var prmSearch pool.PrmObjectSearch
+	prmSearch.SetContainerID(b.cnrID)
+	prmSearch.SetFilters(filters)
+
+	res, err := b.client.SearchObjects(ctx, prmSearch)
 	if err != nil {
-		return nil, err
-	}
-	if len(ids) != 1 {
-		return nil, fmt.Errorf("not found exactly one file: %s", name)
+		return nil, fmt.Errorf("search objects: %w", err)
 	}
 
-	addr := newAddress(b.cnrID, &ids[0])
-	obj, err := b.client.HeadObject(ctx, *addr)
+	defer res.Close()
+
+	var objID oid.ID
+	var found bool
+
+	var inErr error
+	err = res.Iterate(func(id oid.ID) bool {
+		if found {
+			inErr = fmt.Errorf("found more than one object for file: '%s'", name)
+			return true
+		}
+		objID = id
+		found = true
+		return false
+	})
+	if err == nil {
+		err = inErr
+	}
+	if err != nil {
+		return nil, fmt.Errorf("iterate objects: %w", err)
+	}
+
+	if !found {
+		return nil, fmt.Errorf("not found file: '%s'", name)
+	}
+
+	addr := newAddress(b.cnrID, objID)
+	var prm pool.PrmObjectHead
+	prm.SetAddress(addr)
+
+	obj, err := b.client.HeadObject(ctx, prm)
 	if err != nil {
 		return nil, err
 	}
@@ -161,16 +230,35 @@ func (b *Backend) Stat(ctx context.Context, h restic.Handle) (restic.FileInfo, e
 }
 
 func (b *Backend) List(ctx context.Context, t restic.FileType, fn func(restic.FileInfo) error) error {
-	ids, err := b.searchObjects(ctx, map[string]string{attrResticType: string(t)})
+	filters := object.NewSearchFilters()
+	filters.AddRootFilter()
+	filters.AddFilter(attrResticType, string(t), object.MatchStringEqual)
+
+	var prmSearch pool.PrmObjectSearch
+	prmSearch.SetContainerID(b.cnrID)
+	prmSearch.SetFilters(filters)
+
+	res, err := b.client.SearchObjects(ctx, prmSearch)
 	if err != nil {
-		return err
+		return fmt.Errorf("search objects: %w", err)
 	}
 
-	for _, id := range ids {
-		addr := newAddress(b.cnrID, &id)
-		obj, err := b.client.HeadObject(ctx, *addr)
+	defer res.Close()
+
+	var addr oid.Address
+	addr.SetContainer(b.cnrID)
+
+	var inErr error
+	err = res.Iterate(func(id oid.ID) bool {
+		addr.SetObject(id)
+
+		var prm pool.PrmObjectHead
+		prm.SetAddress(addr)
+
+		obj, err := b.client.HeadObject(ctx, prm)
 		if err != nil {
-			return err
+			inErr = fmt.Errorf("head object: %w", err)
+			return true
 		}
 
 		fileInfo := restic.FileInfo{
@@ -178,8 +266,17 @@ func (b *Backend) List(ctx context.Context, t restic.FileType, fn func(restic.Fi
 			Name: getNameAttr(obj),
 		}
 		if err = fn(fileInfo); err != nil {
-			return err
+			inErr = fmt.Errorf("handle fileInfo: %w", err)
+			return true
 		}
+
+		return false
+	})
+	if err == nil {
+		err = inErr
+	}
+	if err != nil {
+		return fmt.Errorf("iterate objects: %w", err)
 	}
 
 	return nil
@@ -199,18 +296,14 @@ func (b *Backend) IsNotExist(err error) bool {
 }
 
 func (b *Backend) Delete(ctx context.Context) error {
-	return b.client.DeleteContainer(ctx, b.cnrID)
-}
+	var prm pool.PrmContainerDelete
+	prm.SetContainerID(b.cnrID)
 
-func (b *Backend) searchObjects(ctx context.Context, filters map[string]string) ([]oid.ID, error) {
-	opts := object.NewSearchFilters()
-	opts.AddRootFilter()
-
-	for key, val := range filters {
-		opts.AddFilter(key, val, object.MatchStringEqual)
+	if err := b.client.DeleteContainer(ctx, prm); err != nil {
+		return fmt.Errorf("delete container: %w", err)
 	}
 
-	return searchObjects(ctx, b.client, b.cnrID, opts)
+	return nil
 }
 
 func getName(h restic.Handle) string {
@@ -219,35 +312,4 @@ func getName(h restic.Handle) string {
 		name = "config"
 	}
 	return name
-}
-
-func searchObjects(ctx context.Context, sdkPool pool.Pool, cnrID *cid.ID, filters object.SearchFilters) ([]oid.ID, error) {
-	res, err := sdkPool.SearchObjects(ctx, *cnrID, filters)
-	if err != nil {
-		return nil, fmt.Errorf("init searching using client: %w", err)
-	}
-
-	defer res.Close()
-
-	var num, read int
-	buf := make([]oid.ID, 10)
-
-	for {
-		num, err = res.Read(buf[read:])
-		if num > 0 {
-			read += num
-			buf = append(buf, oid.ID{})
-			buf = buf[:cap(buf)]
-		}
-
-		if err != nil {
-			if errors.Is(err, io.EOF) {
-				break
-			}
-
-			return nil, fmt.Errorf("couldn't read found objects: %w", err)
-		}
-	}
-
-	return buf[:read], nil
 }

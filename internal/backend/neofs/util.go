@@ -12,10 +12,9 @@ import (
 	"github.com/nspcc-dev/neofs-sdk-go/container"
 	cid "github.com/nspcc-dev/neofs-sdk-go/container/id"
 	"github.com/nspcc-dev/neofs-sdk-go/object"
-	"github.com/nspcc-dev/neofs-sdk-go/object/address"
 	oid "github.com/nspcc-dev/neofs-sdk-go/object/id"
-	"github.com/nspcc-dev/neofs-sdk-go/owner"
 	"github.com/nspcc-dev/neofs-sdk-go/pool"
+	"github.com/nspcc-dev/neofs-sdk-go/user"
 )
 
 // BuffCloser is wrapper to load files from neofs.
@@ -27,23 +26,24 @@ func (bc *BuffCloser) Close() error {
 	return nil
 }
 
-func createPool(ctx context.Context, cfg Config) (pool.Pool, error) {
-	acc, err := getAccount(cfg)
+func createPool(ctx context.Context, acc *wallet.Account, cfg Config) (*pool.Pool, error) {
+	var prm pool.InitParameters
+	prm.SetKey(&acc.PrivateKey().PrivateKey)
+	prm.SetNodeDialTimeout(cfg.Timeout)
+	prm.SetHealthcheckTimeout(cfg.Timeout)
+	prm.SetClientRebalanceInterval(cfg.RebalanceInterval)
+	prm.AddNode(pool.NewNodeParam(1, cfg.Endpoint, 1))
+
+	p, err := pool.NewPool(prm)
 	if err != nil {
-		return nil, err
+		return nil, fmt.Errorf("create pool: %w", err)
 	}
 
-	pb := new(pool.Builder)
-	pb.AddNode(cfg.Endpoint, 1, 1)
-
-	opts := &pool.BuilderOptions{
-		Key:                     &acc.PrivateKey().PrivateKey,
-		NodeConnectionTimeout:   cfg.Timeout,
-		NodeRequestTimeout:      cfg.Timeout,
-		ClientRebalanceInterval: cfg.RebalanceInterval,
+	if err = p.Dial(ctx); err != nil {
+		return nil, fmt.Errorf("dial pool: %w", err)
 	}
 
-	return pb.Build(ctx, opts)
+	return p, nil
 }
 
 func getAccount(cfg Config) (*wallet.Account, error) {
@@ -68,24 +68,30 @@ func getAccount(cfg Config) (*wallet.Account, error) {
 	return acc, nil
 }
 
-func getContainerID(ctx context.Context, client pool.Pool, container string) (*cid.ID, error) {
-	cnrID := cid.New()
-	if err := cnrID.Parse(container); err != nil {
-		return findContainerID(ctx, client, container)
+func getContainerID(ctx context.Context, client *pool.Pool, owner user.ID, container string) (cid.ID, error) {
+	var cnrID cid.ID
+	if err := cnrID.DecodeString(container); err != nil {
+		return findContainerID(ctx, client, owner, container)
 	}
 	return cnrID, nil
 }
 
-func findContainerID(ctx context.Context, client pool.Pool, containerName string) (*cid.ID, error) {
-	containerIDs, err := client.ListContainers(ctx, client.OwnerID())
+func findContainerID(ctx context.Context, client *pool.Pool, owner user.ID, containerName string) (cid.ID, error) {
+	var prm pool.PrmContainerList
+	prm.SetOwnerID(owner)
+
+	containerIDs, err := client.ListContainers(ctx, prm)
 	if err != nil {
-		return nil, err
+		return cid.ID{}, fmt.Errorf("list containers: %w", err)
 	}
 
 	for _, cnrID := range containerIDs {
-		cnr, err := client.GetContainer(ctx, cnrID)
+		var prmGet pool.PrmContainerGet
+		prmGet.SetContainerID(cnrID)
+
+		cnr, err := client.GetContainer(ctx, prmGet)
 		if err != nil {
-			return nil, err
+			return cid.ID{}, fmt.Errorf("get container: %w", err)
 		}
 
 		for _, attr := range cnr.Attributes() {
@@ -95,11 +101,11 @@ func findContainerID(ctx context.Context, client pool.Pool, containerName string
 		}
 	}
 
-	return nil, fmt.Errorf("container '%s' not found", containerName)
+	return cid.ID{}, fmt.Errorf("container '%s' not found", containerName)
 }
 
-func formRawObject(own *owner.ID, cnrID *cid.ID, name string, header map[string]string) *object.RawObject {
-	attributes := make([]*object.Attribute, 0, 2+len(header))
+func formRawObject(own *user.ID, cnrID cid.ID, name string, header map[string]string) *object.Object {
+	attributes := make([]object.Attribute, 0, 2+len(header))
 	filename := object.NewAttribute()
 	filename.SetKey(object.AttributeFileName)
 	filename.SetValue(name)
@@ -108,27 +114,27 @@ func formRawObject(own *owner.ID, cnrID *cid.ID, name string, header map[string]
 	createdAt.SetKey(object.AttributeTimestamp)
 	createdAt.SetValue(strconv.FormatInt(time.Now().UTC().Unix(), 10))
 
-	attributes = append(attributes, filename, createdAt)
+	attributes = append(attributes, *filename, *createdAt)
 
 	for key, val := range header {
 		attr := object.NewAttribute()
 		attr.SetKey(key)
 		attr.SetValue(val)
-		attributes = append(attributes, attr)
+		attributes = append(attributes, *attr)
 	}
 
-	raw := object.NewRaw()
-	raw.SetOwnerID(own)
-	raw.SetContainerID(cnrID)
-	raw.SetAttributes(attributes...)
+	obj := object.New()
+	obj.SetOwnerID(own)
+	obj.SetContainerID(cnrID)
+	obj.SetAttributes(attributes...)
 
-	return raw
+	return obj
 }
 
-func newAddress(cid *cid.ID, oid *oid.ID) *address.Address {
-	addr := address.NewAddress()
-	addr.SetContainerID(cid)
-	addr.SetObjectID(oid)
+func newAddress(cnrID cid.ID, objID oid.ID) oid.Address {
+	var addr oid.Address
+	addr.SetContainer(cnrID)
+	addr.SetObject(objID)
 	return addr
 }
 
@@ -139,5 +145,6 @@ func getNameAttr(obj *object.Object) string {
 		}
 	}
 
-	return obj.ID().String()
+	objID, _ := obj.ID()
+	return objID.EncodeToString()
 }
