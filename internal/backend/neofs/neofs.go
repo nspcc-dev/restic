@@ -185,7 +185,7 @@ func (b *Backend) openReader(ctx context.Context, h restic.Handle, length int, o
 		return nil, err
 	}
 
-	return b.sem.ReleaseTokenOnClose(res, cancel), nil
+	return b.sem.ReleaseTokenOnClose(&res, cancel), nil
 }
 
 func (b *Backend) stat(ctx context.Context, h restic.Handle) (*ObjInfo, error) {

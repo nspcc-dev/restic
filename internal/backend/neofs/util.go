@@ -94,10 +94,8 @@ func findContainerID(ctx context.Context, client *pool.Pool, owner user.ID, cont
 			return cid.ID{}, fmt.Errorf("get container: %w", err)
 		}
 
-		for _, attr := range cnr.Attributes() {
-			if attr.Key() == container.AttributeName && attr.Value() == containerName {
-				return cnrID, nil
-			}
+		if containerName == container.Name(cnr) {
+			return cnrID, nil
 		}
 	}
 
@@ -138,7 +136,7 @@ func newAddress(cnrID cid.ID, objID oid.ID) oid.Address {
 	return addr
 }
 
-func getNameAttr(obj *object.Object) string {
+func getNameAttr(obj object.Object) string {
 	for _, attr := range obj.Attributes() {
 		if attr.Key() == object.AttributeFileName {
 			return attr.Value()

@@ -27,8 +27,8 @@ require (
 	github.com/minio/minio-go/v7 v7.0.27
 	github.com/minio/sha256-simd v1.0.0
 	github.com/ncw/swift/v2 v2.0.1
-	github.com/nspcc-dev/neo-go v0.98.2
-	github.com/nspcc-dev/neofs-sdk-go v1.0.0-rc.4.0.20220628114722-ab4d1e34a8ac
+	github.com/nspcc-dev/neo-go v0.99.1
+	github.com/nspcc-dev/neofs-sdk-go v1.0.0-rc.6.0.20220829114550-ee92df32032e
 	github.com/pkg/errors v0.9.1
 	github.com/pkg/profile v1.6.0
 	github.com/pkg/sftp v1.13.4
@@ -50,7 +50,6 @@ require (
 	google.golang.org/genproto v0.0.0-20220324131243-acbaeb5b85eb // indirect
 	google.golang.org/protobuf v1.28.0 // indirect
 	gopkg.in/ini.v1 v1.66.4 // indirect
-	gopkg.in/yaml.v3 v3.0.0 // indirect
 )
 
 go 1.15
