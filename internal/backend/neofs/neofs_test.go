@@ -5,7 +5,6 @@ import (
 	"fmt"
 	"io"
 	"os"
-	"strconv"
 	"testing"
 	"time"
 
@@ -32,6 +31,7 @@ func TestIntegration(t *testing.T) {
 	versions := []string{
 		"0.27.7",
 		"0.28.1",
+		"0.29.0",
 		"latest",
 	}
 
@@ -56,7 +56,7 @@ func TestIntegration(t *testing.T) {
 
 		p, err := createPool(ctx, acc, cfg)
 		require.NoError(t, err)
-		_, err = createContainer(ctx, p, &owner, cfg.Container, "REP 1")
+		_, err = createContainer(ctx, p, owner, cfg.Container, "REP 1")
 		require.NoError(t, err)
 
 		backend, err := Open(ctx, cfg)
@@ -117,29 +117,31 @@ func simpleList(ctx context.Context, t *testing.T, backend restic.Backend) {
 	require.Equal(t, 1, count)
 }
 
-func createContainer(ctx context.Context, client *pool.Pool, owner *user.ID, containerName, placementPolicy string) (*cid.ID, error) {
+func createContainer(ctx context.Context, client *pool.Pool, owner user.ID, containerName, placementPolicy string) (cid.ID, error) {
 	var pp netmap.PlacementPolicy
 	if err := pp.DecodeString(placementPolicy); err != nil {
-		return nil, fmt.Errorf("decode policy: %w", err)
+		return cid.ID{}, fmt.Errorf("decode policy: %w", err)
 	}
 
-	cnr := container.New(
-		container.WithPolicy(&pp),
-		container.WithCustomBasicACL(acl.Private),
-		container.WithAttribute(container.AttributeName, containerName),
-		container.WithAttribute(container.AttributeTimestamp, strconv.FormatInt(time.Now().Unix(), 10)))
-	cnr.SetOwnerID(owner)
+	var cnr container.Container
+	cnr.Init()
+	cnr.SetPlacementPolicy(pp)
+	cnr.SetBasicACL(acl.Private)
+	cnr.SetOwner(owner)
+
+	container.SetName(&cnr, containerName)
+	container.SetCreationTime(&cnr, time.Now())
 
 	var wp pool.WaitParams
 	wp.SetPollInterval(5 * time.Second)
 	wp.SetTimeout(30 * time.Second)
 	var prm pool.PrmContainerPut
-	prm.SetContainer(*cnr)
+	prm.SetContainer(cnr)
 	prm.SetWaitParams(wp)
 
 	containerID, err := client.PutContainer(ctx, prm)
 	if err != nil {
-		return nil, fmt.Errorf("put container: %w", err)
+		return cid.ID{}, fmt.Errorf("put container: %w", err)
 	}
 
 	return containerID, nil
