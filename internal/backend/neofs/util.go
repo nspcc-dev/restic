@@ -105,7 +105,7 @@ func findContainerID(ctx context.Context, client *pool.Pool, owner user.ID, cont
 func formRawObject(own *user.ID, cnrID cid.ID, name string, header map[string]string) *object.Object {
 	attributes := make([]object.Attribute, 0, 2+len(header))
 	filename := object.NewAttribute()
-	filename.SetKey(object.AttributeFileName)
+	filename.SetKey(object.AttributeFilePath)
 	filename.SetValue(name)
 
 	createdAt := object.NewAttribute()
@@ -136,9 +136,9 @@ func newAddress(cnrID cid.ID, objID oid.ID) oid.Address {
 	return addr
 }
 
-func getNameAttr(obj object.Object) string {
+func getFilePathAttr(obj object.Object) string {
 	for _, attr := range obj.Attributes() {
-		if attr.Key() == object.AttributeFileName {
+		if attr.Key() == object.AttributeFilePath {
 			return attr.Value()
 		}
 	}
