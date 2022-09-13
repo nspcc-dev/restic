@@ -112,15 +112,17 @@ func (b *Backend) Test(ctx context.Context, h restic.Handle) (bool, error) {
 
 	defer res.Close()
 
+	var has bool
+
 	err = res.Iterate(func(id oid.ID) bool {
+		has = true
 		return true
 	})
 	if err != nil {
 		return false, fmt.Errorf("iterate objects: %w", err)
 	}
 
-	return true, nil
-
+	return has, nil
 }
 
 func (b *Backend) Remove(ctx context.Context, h restic.Handle) error {
