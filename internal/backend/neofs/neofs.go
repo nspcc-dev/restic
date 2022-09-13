@@ -27,6 +27,7 @@ type (
 
 		sem         sema.Semaphore
 		connections uint
+		compression bool
 	}
 
 	// ObjInfo represents inner file info.
@@ -36,7 +37,10 @@ type (
 	}
 )
 
-const attrResticType = "restic-type"
+const (
+	attrResticType = "restic-type"
+	compressedType = "application/zsd"
+)
 
 func Open(ctx context.Context, cfg Config) (restic.Backend, error) {
 	return open(ctx, cfg)
@@ -77,6 +81,7 @@ func open(ctx context.Context, cfg Config) (restic.Backend, error) {
 		cnrID:       containerID,
 		sem:         sem,
 		connections: cfg.Connections,
+		compression: cfg.Compression,
 	}, nil
 }
 
@@ -91,7 +96,7 @@ func (b *Backend) Hasher() hash.Hash {
 func (b *Backend) Test(ctx context.Context, h restic.Handle) (bool, error) {
 	filters := object.NewSearchFilters()
 	filters.AddRootFilter()
-	filters.AddFilter(object.AttributeFileName, getName(h), object.MatchStringEqual)
+	filters.AddFilter(object.AttributeFilePath, getName(h), object.MatchStringEqual)
 
 	var prmSearch pool.PrmObjectSearch
 	prmSearch.SetContainerID(b.cnrID)
@@ -140,7 +145,13 @@ func (b *Backend) Close() error {
 
 func (b *Backend) Save(ctx context.Context, h restic.Handle, rd restic.RewindReader) error {
 	name := getName(h)
-	obj := formRawObject(b.owner, b.cnrID, name, map[string]string{attrResticType: string(h.Type)})
+
+	extraAttributes := map[string]string{attrResticType: string(h.Type)}
+	if b.compression {
+		extraAttributes[object.AttributeContentType] = compressedType
+	}
+
+	obj := formRawObject(b.owner, b.cnrID, name, extraAttributes)
 
 	var prm pool.PrmObjectPut
 	prm.SetHeader(*obj)
@@ -192,7 +203,7 @@ func (b *Backend) stat(ctx context.Context, h restic.Handle) (*ObjInfo, error) {
 	name := getName(h)
 	filters := object.NewSearchFilters()
 	filters.AddRootFilter()
-	filters.AddFilter(object.AttributeFileName, name, object.MatchStringEqual)
+	filters.AddFilter(object.AttributeFilePath, name, object.MatchStringEqual)
 	filters.AddFilter(attrResticType, string(h.Type), object.MatchStringEqual)
 
 	var prmSearch pool.PrmObjectSearch
@@ -296,7 +307,7 @@ func (b *Backend) List(ctx context.Context, t restic.FileType, fn func(restic.Fi
 
 		fileInfo := restic.FileInfo{
 			Size: int64(obj.PayloadSize()),
-			Name: getNameAttr(obj),
+			Name: getFilePathAttr(obj),
 		}
 		if err = fn(fileInfo); err != nil {
 			inErr = fmt.Errorf("handle fileInfo: %w", err)

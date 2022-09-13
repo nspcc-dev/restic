@@ -11,8 +11,9 @@ import (
 
 // Config contains all configuration necessary to connect to neofs.
 type Config struct {
-	Endpoint  string
-	Container string
+	Endpoint    string
+	Container   string
+	Compression bool
 
 	Wallet            string        `option:"wallet" help:"path to the wallet"`
 	Address           string        `option:"address" help:"address of account (can be empty)"`

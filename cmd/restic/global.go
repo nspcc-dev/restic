@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"io"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"runtime"
 	"strconv"
@@ -36,8 +37,6 @@ import (
 	"github.com/restic/restic/internal/ui/termstatus"
 
 	"github.com/restic/restic/internal/errors"
-
-	"os/exec"
 
 	"golang.org/x/term"
 )
@@ -686,6 +685,8 @@ func parseConfig(loc location.Location, opts options.Options) (interface{}, erro
 		if err := opts.Apply(loc.Scheme, &cfg); err != nil {
 			return nil, err
 		}
+
+		cfg.Compression = globalOptions.Compression != repository.CompressionOff
 
 		if cfg.Timeout <= 0 {
 			cfg.Timeout = 10 * time.Second
