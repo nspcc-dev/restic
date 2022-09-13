@@ -54,6 +54,38 @@ Therefore, restic supports the following backends for storing backups natively:
 - [Google Cloud Storage](https://restic.readthedocs.io/en/latest/030_preparing_a_new_repo.html#google-cloud-storage)
 - And many other services via the [rclone](https://rclone.org) [Backend](https://restic.readthedocs.io/en/latest/030_preparing_a_new_repo.html#other-services-via-rclone)
 
+## NeoFS
+
+As backed you can use [NeoFS](https://github.com/nspcc-dev/neofs-node).
+
+**Note:** you must use go version >= 1.17 to build restic with NeoFS backed.
+
+First of all you must have a container. You can create a new one with `neofs-cli`:
+
+```shell
+$ neofs-cli -r grpc://s01.neofs.devenv:8080 -w wallet.json \
+ container create  --policy "REP 3" --basic-acl private --await
+
+Enter password > 
+container ID: BQuLfh5yPSWLRsoRGtvqg8itXRREN17dgmHDsw1yLJgb
+awaiting...
+container has been persisted on sidechain
+```
+
+Then you can initialize restic repository:
+
+```shell
+$ restic -r neofs:grpc://s01.neofs.devenv:8080/BQuLfh5yPSWLRsoRGtvqg8itXRREN17dgmHDsw1yLJgb \
+  init -o neofs.wallet=wallet.json
+```
+
+### Compression
+
+If compression is enabled the NeoFS backend sets the `Content-Type: application/zstd` attribute to object.
+So if compression is also enabled in NeoFS node make sure you added the `application/zstd` type to the excluded list
+(`compression_exclude_content_types` config param in shard) to prevent compression on node side.
+
+
 # Design Principles
 
 Restic is a program that does backups right and was designed with the
