@@ -1,3 +1,6 @@
+//go:build go1.17 && linux
+// +build go1.17,linux
+
 package neofs
 
 import (
