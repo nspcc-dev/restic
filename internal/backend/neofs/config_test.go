@@ -7,8 +7,7 @@ func TestParseConfig(t *testing.T) {
 		s   string
 		cfg Config
 	}{
-		{"neofs:grpcs://s01.neofs.devenv:8080/container-name", Config{
-			Endpoint:    "grpcs://s01.neofs.devenv:8080",
+		{"neofs:container-name", Config{
 			Container:   "container-name",
 			Connections: 5,
 		}},

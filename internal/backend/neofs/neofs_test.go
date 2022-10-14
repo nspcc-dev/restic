@@ -39,7 +39,7 @@ func TestIntegration(t *testing.T) {
 	}
 
 	cfg := Config{
-		Endpoint:          "localhost:8080",
+		Endpoints:         "localhost:8080",
 		Container:         "container",
 		Wallet:            filename,
 		Timeout:           10 * time.Second,

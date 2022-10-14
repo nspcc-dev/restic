@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"io"
 	"strconv"
+	"strings"
 	"time"
 
 	"github.com/nspcc-dev/neo-go/cli/flags"
@@ -26,13 +27,124 @@ func (bc *BuffCloser) Close() error {
 	return nil
 }
 
+// EndpointInfo stores information about endpoint.
+type EndpointInfo struct {
+	Address  string
+	Priority int
+	Weight   float64
+}
+
+func parseEndpoints(endpointsParam string) ([]EndpointInfo, error) {
+	var err error
+	expectedLength := -1 // to make sure all endpoints have the same format
+
+	endpoints := splitAndTrimEmpty(endpointsParam, ";")
+	res := make([]EndpointInfo, 0, len(endpoints))
+	seen := make(map[string]struct{}, len(endpoints))
+
+	for _, endpoint := range endpoints {
+		endpointInfoSplit := splitAndTrimEmpty(endpoint, " ")
+		address := endpointInfoSplit[0]
+
+		if len(address) == 0 {
+			continue
+		}
+		if _, ok := seen[address]; ok {
+			return nil, fmt.Errorf("endpoint '%s' is already defined", address)
+		}
+		seen[address] = struct{}{}
+
+		endpointInfo := EndpointInfo{
+			Address:  address,
+			Priority: 1,
+			Weight:   1,
+		}
+
+		if expectedLength == -1 {
+			expectedLength = len(endpointInfoSplit)
+		}
+
+		if len(endpointInfoSplit) != expectedLength {
+			return nil, fmt.Errorf("all endpoints must have the same format: '%s'", endpointsParam)
+		}
+
+		switch len(endpointInfoSplit) {
+		case 1:
+		case 2:
+			endpointInfo.Priority, err = parsePriority(endpointInfoSplit[1])
+			if err != nil {
+				return nil, fmt.Errorf("invalid endpoint '%s': %w", endpoint, err)
+			}
+		case 3:
+			endpointInfo.Priority, err = parsePriority(endpointInfoSplit[1])
+			if err != nil {
+				return nil, fmt.Errorf("invalid endpoint '%s': %w", endpoint, err)
+			}
+
+			endpointInfo.Weight, err = parseWeight(endpointInfoSplit[2])
+			if err != nil {
+				return nil, fmt.Errorf("invalid endpoint '%s': %w", endpoint, err)
+			}
+		default:
+			return nil, fmt.Errorf("invalid endpoint format '%s'", endpoint)
+		}
+
+		res = append(res, endpointInfo)
+	}
+
+	return res, nil
+}
+
+func parsePriority(priorityStr string) (int, error) {
+	priority, err := strconv.Atoi(priorityStr)
+	if err != nil {
+		return 0, fmt.Errorf("invalid priority '%s': %w", priorityStr, err)
+	}
+	if priority <= 0 {
+		return 0, fmt.Errorf("priority must be positive '%s'", priorityStr)
+	}
+
+	return priority, nil
+}
+
+func parseWeight(weightStr string) (float64, error) {
+	weight, err := strconv.ParseFloat(weightStr, 64)
+	if err != nil {
+		return 0, fmt.Errorf("invalid weight '%s': %w", weightStr, err)
+	}
+	if weight <= 0 {
+		return 0, fmt.Errorf("weight must be positive '%s'", weightStr)
+	}
+
+	return weight, nil
+}
+
+func splitAndTrimEmpty(str, sep string) []string {
+	var res []string
+	for _, item := range strings.Split(strings.TrimSpace(str), sep) {
+		trimmed := strings.TrimSpace(item)
+		if len(trimmed) > 0 {
+			res = append(res, trimmed)
+		}
+	}
+
+	return res
+}
+
 func createPool(ctx context.Context, acc *wallet.Account, cfg Config) (*pool.Pool, error) {
 	var prm pool.InitParameters
 	prm.SetKey(&acc.PrivateKey().PrivateKey)
 	prm.SetNodeDialTimeout(cfg.Timeout)
 	prm.SetHealthcheckTimeout(cfg.Timeout)
 	prm.SetClientRebalanceInterval(cfg.RebalanceInterval)
-	prm.AddNode(pool.NewNodeParam(1, cfg.Endpoint, 1))
+
+	nodes, err := getNodePoolParams(cfg.Endpoints)
+	if err != nil {
+		return nil, err
+	}
+	for _, node := range nodes {
+		prm.AddNode(node)
+	}
 
 	p, err := pool.NewPool(prm)
 	if err != nil {
@@ -44,6 +156,20 @@ func createPool(ctx context.Context, acc *wallet.Account, cfg Config) (*pool.Poo
 	}
 
 	return p, nil
+}
+
+func getNodePoolParams(endpointParam string) ([]pool.NodeParam, error) {
+	endpointInfos, err := parseEndpoints(endpointParam)
+	if err != nil {
+		return nil, fmt.Errorf("parse endpoints params: %w", err)
+	}
+
+	res := make([]pool.NodeParam, len(endpointInfos))
+	for i, info := range endpointInfos {
+		res[i] = pool.NewNodeParam(info.Priority, info.Address, info.Weight)
+	}
+
+	return res, nil
 }
 
 func getAccount(cfg Config) (*wallet.Account, error) {
