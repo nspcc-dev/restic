@@ -10,8 +10,8 @@ import (
 
 	"github.com/nspcc-dev/neo-go/cli/flags"
 	"github.com/nspcc-dev/neo-go/pkg/wallet"
-	"github.com/nspcc-dev/neofs-sdk-go/container"
 	cid "github.com/nspcc-dev/neofs-sdk-go/container/id"
+	"github.com/nspcc-dev/neofs-sdk-go/ns"
 	"github.com/nspcc-dev/neofs-sdk-go/object"
 	oid "github.com/nspcc-dev/neofs-sdk-go/object/id"
 	"github.com/nspcc-dev/neofs-sdk-go/pool"
@@ -194,38 +194,17 @@ func getAccount(cfg Config) (*wallet.Account, error) {
 	return acc, nil
 }
 
-func getContainerID(ctx context.Context, client *pool.Pool, owner user.ID, container string) (cid.ID, error) {
+func resolveContainerID(rpcAddress string, container string) (cid.ID, error) {
 	var cnrID cid.ID
 	if err := cnrID.DecodeString(container); err != nil {
-		return findContainerID(ctx, client, owner, container)
+		var nnsResolver ns.NNS
+		if err = nnsResolver.Dial(rpcAddress); err != nil {
+			return cid.ID{}, fmt.Errorf("failed to dial rpc endpoint '%s': %w", rpcAddress, err)
+		}
+
+		return nnsResolver.ResolveContainerName(container)
 	}
 	return cnrID, nil
-}
-
-func findContainerID(ctx context.Context, client *pool.Pool, owner user.ID, containerName string) (cid.ID, error) {
-	var prm pool.PrmContainerList
-	prm.SetOwnerID(owner)
-
-	containerIDs, err := client.ListContainers(ctx, prm)
-	if err != nil {
-		return cid.ID{}, fmt.Errorf("list containers: %w", err)
-	}
-
-	for _, cnrID := range containerIDs {
-		var prmGet pool.PrmContainerGet
-		prmGet.SetContainerID(cnrID)
-
-		cnr, err := client.GetContainer(ctx, prmGet)
-		if err != nil {
-			return cid.ID{}, fmt.Errorf("get container: %w", err)
-		}
-
-		if containerName == container.Name(cnr) {
-			return cnrID, nil
-		}
-	}
-
-	return cid.ID{}, fmt.Errorf("container '%s' not found", containerName)
 }
 
 func formRawObject(own *user.ID, cnrID cid.ID, name string, header map[string]string) *object.Object {

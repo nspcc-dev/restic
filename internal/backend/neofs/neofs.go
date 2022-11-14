@@ -69,7 +69,7 @@ func open(ctx context.Context, cfg Config) (restic.Backend, error) {
 		return nil, err
 	}
 
-	containerID, err := getContainerID(ctx, p, owner, cfg.Container)
+	containerID, err := resolveContainerID(cfg.RPCEndpoint, cfg.Container)
 	if err != nil {
 		return nil, fmt.Errorf("failed to resolve container id: %w", err)
 	}
