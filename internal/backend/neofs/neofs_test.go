@@ -40,6 +40,7 @@ func TestIntegration(t *testing.T) {
 
 	cfg := Config{
 		Endpoints:         "localhost:8080",
+		RPCEndpoint:       "http://localhost:30333",
 		Container:         "container",
 		Wallet:            filename,
 		Timeout:           10 * time.Second,
@@ -134,6 +135,10 @@ func createContainer(ctx context.Context, client *pool.Pool, owner user.ID, cont
 
 	container.SetName(&cnr, containerName)
 	container.SetCreationTime(&cnr, time.Now())
+
+	var domain container.Domain
+	domain.SetName(containerName)
+	container.WriteDomain(&cnr, domain)
 
 	var wp pool.WaitParams
 	wp.SetPollInterval(5 * time.Second)

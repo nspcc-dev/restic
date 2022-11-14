@@ -14,6 +14,7 @@ type Config struct {
 	Compression bool
 
 	Endpoints         string        `option:"endpoints" help:"neofs endpoints, format: '<address> [<priority> [<weight>]]; ...'"`
+	RPCEndpoint       string        `option:"rpc-endpoint" help:"neo endpoint to invoke NNS contract"`
 	Wallet            string        `option:"wallet" help:"path to the wallet"`
 	Address           string        `option:"address" help:"address of account (can be empty)"`
 	Password          string        `option:"password" help:"password to decrypt wallet"`
